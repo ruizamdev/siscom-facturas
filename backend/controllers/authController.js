@@ -90,6 +90,14 @@ const register = async (req, res, next) => {
       });
     }
 
+    // Verificar si el email ya existe
+    const existingUser = User.findByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({
+        error: "Ya existe un usuario con ese email",
+      });
+    }
+
     const user = await User.create({
       email,
       password,

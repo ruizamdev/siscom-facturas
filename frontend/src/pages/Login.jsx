@@ -94,7 +94,10 @@ const Login = () => {
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => setIsRegister(!isRegister)}
+              onClick={() => {
+                setIsRegister(!isRegister);
+                setFormData({ email: "", password: "" });
+              }}
               className="text-blue-600 hover:text-blue-500 text-sm"
             >
               {isRegister
