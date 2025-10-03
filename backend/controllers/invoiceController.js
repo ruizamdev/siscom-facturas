@@ -1,25 +1,6 @@
 const Invoice = require("../models/Invoice");
 const User = require("../models/User");
-
-// Simulador de datos de ContPAQi (reemplazar después con consulta real)
-const mockContPAQiData = {
-  NOTA001: {
-    cliente: "Juan Pérez García",
-    productos: [{ descripcion: "Consultoría IT", cantidad: 1, precio: 5000.0 }],
-    subtotal: 5000.0,
-    iva: 800.0,
-    total: 5800.0,
-    fecha: "2025-09-28",
-  },
-  NOTA002: {
-    cliente: "María González López",
-    productos: [{ descripcion: "Desarrollo Web", cantidad: 1, precio: 8000.0 }],
-    subtotal: 8000.0,
-    iva: 1280.0,
-    total: 9280.0,
-    fecha: "2025-09-28",
-  },
-};
+const ContpaqiService = require("../services/contpaqiService");
 
 const getInvoices = async (req, res, next) => {
   try {
@@ -40,19 +21,30 @@ const validateNote = async (req, res, next) => {
       });
     }
 
-    // Verificar si la nota existe en ContPAQi (simulado)
-    const noteData = mockContPAQiData[noteId];
-    if (!noteData) {
-      return res.status(404).json({
-        error: "Nota no encontrada en ContPAQi",
+    // Validar nota en ContPAQi SQL Server
+    const validation = await ContpaqiService.validateNote(noteId);
+
+    if (!validation.valid) {
+      // Mapear errores específicos a códigos HTTP
+      const statusCode = {
+        'NOT_FOUND': 404,
+        'ALREADY_INVOICED': 409,
+        'INVALID_TOTAL': 400,
+        'DATABASE_ERROR': 503,
+      }[validation.error] || 400;
+
+      return res.status(statusCode).json({
+        error: validation.message,
+        errorCode: validation.error,
+        details: validation.details,
       });
     }
 
-    // Verificar si ya fue facturada
+    // Verificar si ya fue facturada localmente (doble verificación)
     const existingInvoice = Invoice.findByNoteId(noteId);
     if (existingInvoice) {
       return res.status(409).json({
-        error: "Esta nota ya ha sido facturada",
+        error: "Esta nota ya ha sido facturada en el sistema local",
         invoice: existingInvoice,
       });
     }
@@ -71,9 +63,10 @@ const validateNote = async (req, res, next) => {
       });
     }
 
+    // Retornar datos de la nota validada
     res.json({
-      message: "Nota válida para facturación",
-      noteData,
+      message: validation.message,
+      noteData: validation.note,
       fiscalData: {
         rfc: user.rfc,
         razon_social: user.razon_social,
@@ -95,14 +88,24 @@ const generateInvoice = async (req, res, next) => {
       });
     }
 
-    // Verificar nota nuevamente
-    const noteData = mockContPAQiData[noteId];
-    if (!noteData) {
-      return res.status(404).json({
-        error: "Nota no encontrada",
+    // Validar nota nuevamente en ContPAQi
+    const validation = await ContpaqiService.validateNote(noteId);
+
+    if (!validation.valid) {
+      const statusCode = {
+        'NOT_FOUND': 404,
+        'ALREADY_INVOICED': 409,
+        'INVALID_TOTAL': 400,
+        'DATABASE_ERROR': 503,
+      }[validation.error] || 400;
+
+      return res.status(statusCode).json({
+        error: validation.message,
+        errorCode: validation.error,
       });
     }
 
+    // Verificar localmente
     const existingInvoice = Invoice.findByNoteId(noteId);
     if (existingInvoice) {
       return res.status(409).json({
@@ -110,15 +113,16 @@ const generateInvoice = async (req, res, next) => {
       });
     }
 
-    // Crear registro en base de datos
+    // Crear registro en base de datos con datos de ContPAQi
     const invoice = Invoice.create({
       user_id: req.user.id,
       note_id: noteId,
       status: "processing",
-      total: noteData.total,
+      total: validation.note.total,
     });
 
     // Simulación de timbrado con Facturama
+    // TODO: Reemplazar con integración real de Facturama API
     setTimeout(() => {
       // Simular resultado exitoso
       const folioFiscal = `${Date.now()}-${Math.random()
@@ -142,7 +146,7 @@ const generateInvoice = async (req, res, next) => {
         id: invoice.id,
         note_id: noteId,
         status: "processing",
-        total: noteData.total,
+        total: validation.note.total,
       },
     });
   } catch (error) {

@@ -78,7 +78,6 @@ const Login = () => {
               value={formData.password}
               onChange={handleChange}
               required
-              placeholder="••••••••"
             />
 
             <Button

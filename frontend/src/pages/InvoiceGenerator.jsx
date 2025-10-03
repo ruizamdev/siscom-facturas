@@ -41,9 +41,23 @@ const InvoiceGenerator = () => {
       setNoteData(response.noteData);
       setFiscalData(response.fiscalData);
       setCurrentStep(STEPS.VALIDATION);
-      showSuccess("Nota encontrada y validada");
+      showSuccess("Nota encontrada y validada en ContPAQi");
     } catch (error) {
-      showError(error.message);
+      // Mejorar manejo de errores específicos
+      const errorCode = error.response?.data?.errorCode;
+      const errorDetails = error.response?.data?.details;
+
+      if (errorCode === 'NOT_FOUND') {
+        showError(`❌ Nota no encontrada: ${noteId} no existe en ContPAQi o está cancelada`);
+      } else if (errorCode === 'ALREADY_INVOICED') {
+        showError(`⚠️ Esta nota ya fue facturada. UUID: ${errorDetails?.uuid || 'N/A'}`);
+      } else if (errorCode === 'INVALID_TOTAL') {
+        showError('❌ La nota tiene un total inválido');
+      } else if (errorCode === 'DATABASE_ERROR') {
+        showError('🔌 Error de conexión con ContPAQi. Verifique la conexión a la base de datos');
+      } else {
+        showError(error.message || 'Error al validar la nota');
+      }
     } finally {
       setLoading(false);
     }
@@ -182,27 +196,11 @@ const InvoiceGenerator = () => {
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                 <h3 className="font-medium text-blue-900 mb-2">
-                  💡 Notas de ejemplo
+                  💡 Información
                 </h3>
-                <p className="text-blue-700 text-sm mb-2">
-                  Para probar puedes usar:
+                <p className="text-blue-700 text-sm">
+                  Ingresa el folio de la nota que deseas facturar. El sistema verificará automáticamente en ContPAQi si la nota existe y si ya fue facturada.
                 </p>
-                <div className="space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setNoteId("NOTA001")}
-                    className="text-blue-600 hover:text-blue-800 underline text-sm"
-                  >
-                    NOTA001
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNoteId("NOTA002")}
-                    className="text-blue-600 hover:text-blue-800 underline text-sm"
-                  >
-                    NOTA002
-                  </button>
-                </div>
               </div>
 
               <Button
@@ -247,15 +245,20 @@ const InvoiceGenerator = () => {
                     </div>
                     <div>
                       <span className="text-sm font-medium text-gray-500">
-                        Cliente:
+                        Total:
                       </span>
-                      <p className="font-medium">{noteData.cliente}</p>
+                      <p className="font-medium">
+                        {new Intl.NumberFormat("es-MX", {
+                          style: "currency",
+                          currency: "MXN",
+                        }).format(noteData.total)}
+                      </p>
                     </div>
                     <div>
                       <span className="text-sm font-medium text-gray-500">
                         Fecha:
                       </span>
-                      <p>{noteData.fecha}</p>
+                      <p>{noteData.dateDocument ? new Date(noteData.dateDocument).toLocaleDateString('es-MX') : 'N/A'}</p>
                     </div>
                   </div>
                 </div>
@@ -287,93 +290,55 @@ const InvoiceGenerator = () => {
                 </div>
               </div>
 
-              {/* Productos */}
+              {/* Detalles adicionales */}
               <div className="mt-6">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  🛒 Productos/Servicios
+                  📊 Resumen de Importes
                 </h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2 text-sm font-medium text-gray-500">
-                          Descripción
-                        </th>
-                        <th className="text-right py-2 text-sm font-medium text-gray-500">
-                          Cantidad
-                        </th>
-                        <th className="text-right py-2 text-sm font-medium text-gray-500">
-                          Precio
-                        </th>
-                        <th className="text-right py-2 text-sm font-medium text-gray-500">
-                          Importe
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {noteData.productos.map((producto, index) => (
-                        <tr key={index} className="border-b">
-                          <td className="py-2">{producto.descripcion}</td>
-                          <td className="py-2 text-right">
-                            {producto.cantidad}
-                          </td>
-                          <td className="py-2 text-right">
-                            {new Intl.NumberFormat("es-MX", {
-                              style: "currency",
-                              currency: "MXN",
-                            }).format(producto.precio)}
-                          </td>
-                          <td className="py-2 text-right font-medium">
-                            {new Intl.NumberFormat("es-MX", {
-                              style: "currency",
-                              currency: "MXN",
-                            }).format(producto.cantidad * producto.precio)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600">Subtotal:</span>
+                      <span className="font-medium">
+                        {new Intl.NumberFormat("es-MX", {
+                          style: "currency",
+                          currency: "MXN",
+                        }).format(noteData.subTotal || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600">IVA:</span>
+                      <span className="font-medium">
+                        {new Intl.NumberFormat("es-MX", {
+                          style: "currency",
+                          currency: "MXN",
+                        }).format(noteData.totalTax || 0)}
+                      </span>
+                    </div>
+                    {noteData.totalDiscount > 0 && (
+                      <div className="flex justify-between text-red-600">
+                        <span className="text-sm">Descuento:</span>
+                        <span className="font-medium">
+                          -{new Intl.NumberFormat("es-MX", {
+                            style: "currency",
+                            currency: "MXN",
+                          }).format(noteData.totalDiscount)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 border-t">
+                      <span className="font-semibold">Total:</span>
+                      <span className="font-bold text-blue-600">
+                        {new Intl.NumberFormat("es-MX", {
+                          style: "currency",
+                          currency: "MXN",
+                        }).format(noteData.total)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Totales */}
-              <div className="mt-6 bg-blue-50 rounded-lg p-4">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">
-                      Subtotal
-                    </span>
-                    <p className="text-lg font-semibold">
-                      {new Intl.NumberFormat("es-MX", {
-                        style: "currency",
-                        currency: "MXN",
-                      }).format(noteData.subtotal)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">
-                      IVA (16%)
-                    </span>
-                    <p className="text-lg font-semibold">
-                      {new Intl.NumberFormat("es-MX", {
-                        style: "currency",
-                        currency: "MXN",
-                      }).format(noteData.iva)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">
-                      Total
-                    </span>
-                    <p className="text-xl font-bold text-blue-600">
-                      {new Intl.NumberFormat("es-MX", {
-                        style: "currency",
-                        currency: "MXN",
-                      }).format(noteData.total)}
-                    </p>
-                  </div>
-                </div>
-              </div>
 
               <div className="flex space-x-4 mt-6">
                 <Button
